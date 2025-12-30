@@ -1,63 +1,145 @@
-import Image from "next/image";
+'use client';
+
+import { useState, useMemo } from 'react';
+import { useTodos } from '@/hooks';
+import { TodoInput, TodoList, TodoSidebar } from '@/components/todo';
+import { CheckCircle2, Loader2 } from 'lucide-react';
 
 export default function Home() {
+  const {
+    todos,
+    categories,
+    tags,
+    isLoaded,
+    addTodo,
+    updateTodo,
+    toggleTodo,
+    deleteTodo,
+    reorderTodos,
+    addCategory,
+    deleteCategory,
+    addTag,
+    deleteTag,
+  } = useTodos();
+
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [selectedTag, setSelectedTag] = useState<string | null>(null);
+
+  // Filter todos based on selection
+  const filteredTodos = useMemo(() => {
+    let filtered = todos;
+
+    if (selectedCategory) {
+      filtered = filtered.filter((todo) => todo.categoryId === selectedCategory);
+    }
+
+    if (selectedTag) {
+      filtered = filtered.filter((todo) => todo.tags.includes(selectedTag));
+    }
+
+    return filtered;
+  }, [todos, selectedCategory, selectedTag]);
+
+  // Count todos by category and tag
+  const todoCountByCategory = useMemo(() => {
+    const counts: Record<string, number> = {};
+    todos.forEach((todo) => {
+      if (todo.categoryId) {
+        counts[todo.categoryId] = (counts[todo.categoryId] || 0) + 1;
+      }
+    });
+    return counts;
+  }, [todos]);
+
+  const todoCountByTag = useMemo(() => {
+    const counts: Record<string, number> = {};
+    todos.forEach((todo) => {
+      todo.tags.forEach((tagId) => {
+        counts[tagId] = (counts[tagId] || 0) + 1;
+      });
+    });
+    return counts;
+  }, [todos]);
+
+  // Get title based on selection
+  const getTitle = () => {
+    if (selectedCategory) {
+      const category = categories.find((c) => c.id === selectedCategory);
+      return category?.name || 'Tarefas';
+    }
+    if (selectedTag) {
+      const tag = tags.find((t) => t.id === selectedTag);
+      return tag?.name || 'Tarefas';
+    }
+    return 'All Tasks';
+  };
+
+  if (!isLoaded) {
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
+      </div>
+    );
+  }
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
+    <div className="flex h-screen bg-white">
+      {/* Sidebar */}
+      <TodoSidebar
+        categories={categories}
+        tags={tags}
+        selectedCategory={selectedCategory}
+        selectedTag={selectedTag}
+        onSelectCategory={setSelectedCategory}
+        onSelectTag={setSelectedTag}
+        onAddCategory={addCategory}
+        onDeleteCategory={deleteCategory}
+        onAddTag={addTag}
+        onDeleteTag={deleteTag}
+        todoCountByCategory={todoCountByCategory}
+        todoCountByTag={todoCountByTag}
+        totalTodos={todos.length}
+      />
+
+      {/* Main content */}
+      <main className="flex-1 overflow-auto">
+        <div className="mx-auto max-w-3xl px-8 py-12">
+          {/* Header */}
+          <header className="mb-8">
+            <div className="flex items-center gap-3 mb-2">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-linear-to-br from-sky-400 to-sky-500 text-white shadow-sm">
+                <CheckCircle2 className="h-6 w-6" />
+              </div>
+              <h1 className="font-serif text-4xl font-semibold text-gray-900">
+                {getTitle()}
+              </h1>
+            </div>
+            <p className="text-gray-500 ml-13 pl-0.5">
+              {filteredTodos.filter((t) => !t.completed).length} pending tasks
+            </p>
+          </header>
+
+          {/* Todo Input */}
+          <div className="mb-8 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+            <TodoInput
+              categories={categories}
+              tags={tags}
+              onAdd={(title, categoryId, tagIds) => {
+                addTodo(title, categoryId || selectedCategory, tagIds);
+              }}
             />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+          </div>
+
+          {/* Todo List */}
+          <TodoList
+            todos={filteredTodos}
+            categories={categories}
+            tags={tags}
+            onToggle={toggleTodo}
+            onDelete={deleteTodo}
+            onUpdate={updateTodo}
+            onReorder={reorderTodos}
+          />
         </div>
       </main>
     </div>
