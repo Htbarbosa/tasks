@@ -5,11 +5,11 @@ import { CheckCircle2 } from "lucide-react";
 
 export default function LoginPage() {
     return (
-        <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100">
+        <div className="flex min-h-screen items-center justify-center bg-linear-to-br from-gray-50 to-gray-100">
             <div className="w-full max-w-md space-y-8 rounded-2xl bg-white p-8 shadow-xl">
                 {/* Logo and Title */}
                 <div className="text-center">
-                    <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-sky-400 to-sky-500 text-white shadow-lg">
+                    <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-linear-to-br from-sky-400 to-sky-500 text-white shadow-lg">
                         <CheckCircle2 className="h-9 w-9" />
                     </div>
                     <h1 className="mt-6 font-serif text-3xl font-semibold text-gray-900">

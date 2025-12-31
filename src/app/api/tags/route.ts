@@ -16,7 +16,7 @@ export async function GET() {
         return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const tags = getUserTags(session.user.id);
+    const tags = await getUserTags(session.user.id);
     return NextResponse.json(tags);
 }
 
@@ -51,7 +51,7 @@ export async function POST(request: Request) {
             color,
         };
 
-        const tag = addUserTag(session.user.id, newTag);
+        const tag = await addUserTag(session.user.id, newTag);
         return NextResponse.json(tag, { status: 201 });
     } catch {
         return NextResponse.json(

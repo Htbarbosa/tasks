@@ -1,9 +1,9 @@
 /**
- * In-memory data store for user todo data.
- * This is a lightweight solution for development.
- * In production, replace with a proper database (PostgreSQL, MongoDB, etc.)
+ * Turso/libSQL data store for user todo data.
+ * Persistent database storage for production.
  */
 
+import { db, initializeDatabase } from "./db";
 import { Todo, Category, Tag, DEFAULT_CATEGORIES, DEFAULT_TAGS } from "@/types";
 
 interface UserData {
@@ -13,157 +13,414 @@ interface UserData {
     migrated: boolean;
 }
 
-// In-memory store - will reset on server restart
-// In production, use a database
-const userDataStore = new Map<string, UserData>();
-
-function getDefaultUserData(): UserData {
-    return {
-        todos: [],
-        categories: [...DEFAULT_CATEGORIES],
-        tags: [...DEFAULT_TAGS],
-        migrated: false,
-    };
-}
-
-export function getUserData(userId: string): UserData {
-    if (!userDataStore.has(userId)) {
-        userDataStore.set(userId, getDefaultUserData());
+// Initialize database on first import
+let dbInitialized = false;
+async function ensureDbInitialized() {
+    if (!dbInitialized) {
+        await initializeDatabase();
+        dbInitialized = true;
     }
-    return userDataStore.get(userId)!;
 }
 
-export function setUserData(userId: string, data: Partial<UserData>): UserData {
-    const currentData = getUserData(userId);
-    const newData = { ...currentData, ...data };
-    userDataStore.set(userId, newData);
-    return newData;
+// Ensure user exists in database
+async function ensureUser(userId: string): Promise<void> {
+    await ensureDbInitialized();
+
+    const existing = await db.execute({
+        sql: "SELECT id FROM users WHERE id = ?",
+        args: [userId],
+    });
+
+    if (existing.rows.length === 0) {
+        // Create user with default categories and tags
+        await db.execute({
+            sql: "INSERT INTO users (id, migrated) VALUES (?, 0)",
+            args: [userId],
+        });
+
+        // Insert default categories
+        for (const cat of DEFAULT_CATEGORIES) {
+            await db.execute({
+                sql: "INSERT INTO categories (id, user_id, name, icon, color) VALUES (?, ?, ?, ?, ?)",
+                args: [cat.id, userId, cat.name, cat.icon, cat.color],
+            });
+        }
+
+        // Insert default tags
+        for (const tag of DEFAULT_TAGS) {
+            await db.execute({
+                sql: "INSERT INTO tags (id, user_id, name, color) VALUES (?, ?, ?, ?)",
+                args: [tag.id, userId, tag.name, tag.color],
+            });
+        }
+    }
+}
+
+export async function getUserData(userId: string): Promise<UserData> {
+    await ensureUser(userId);
+
+    // Get user migration status
+    const userResult = await db.execute({
+        sql: "SELECT migrated FROM users WHERE id = ?",
+        args: [userId],
+    });
+    const migrated = userResult.rows[0]?.migrated === 1;
+
+    // Get todos
+    const todosResult = await db.execute({
+        sql: `SELECT id, title, completed, category_id, position, created_at, updated_at 
+              FROM todos WHERE user_id = ? ORDER BY position ASC, created_at DESC`,
+        args: [userId],
+    });
+
+    // Get tags for each todo
+    const todos: Todo[] = await Promise.all(
+        todosResult.rows.map(async (row) => {
+            const tagsResult = await db.execute({
+                sql: "SELECT tag_id FROM todo_tags WHERE todo_id = ?",
+                args: [row.id],
+            });
+            return {
+                id: row.id as string,
+                title: row.title as string,
+                completed: row.completed === 1,
+                categoryId: row.category_id as string | null,
+                tags: tagsResult.rows.map((t) => t.tag_id as string),
+                createdAt: row.created_at as string,
+                updatedAt: row.updated_at as string,
+            };
+        })
+    );
+
+    // Get categories
+    const categoriesResult = await db.execute({
+        sql: "SELECT id, name, icon, color FROM categories WHERE user_id = ?",
+        args: [userId],
+    });
+    const categories: Category[] = categoriesResult.rows.map((row) => ({
+        id: row.id as string,
+        name: row.name as string,
+        icon: row.icon as string,
+        color: row.color as string,
+    }));
+
+    // Get tags
+    const tagsResult = await db.execute({
+        sql: "SELECT id, name, color FROM tags WHERE user_id = ?",
+        args: [userId],
+    });
+    const tags: Tag[] = tagsResult.rows.map((row) => ({
+        id: row.id as string,
+        name: row.name as string,
+        color: row.color as string,
+    }));
+
+    return { todos, categories, tags, migrated };
 }
 
 // Todo operations
-export function getUserTodos(userId: string): Todo[] {
-    return getUserData(userId).todos;
+export async function getUserTodos(userId: string): Promise<Todo[]> {
+    const data = await getUserData(userId);
+    return data.todos;
 }
 
-export function addUserTodo(userId: string, todo: Todo): Todo {
-    const userData = getUserData(userId);
-    userData.todos = [todo, ...userData.todos];
-    userDataStore.set(userId, userData);
+export async function addUserTodo(userId: string, todo: Todo): Promise<Todo> {
+    await ensureUser(userId);
+
+    // Get max position
+    const maxPosResult = await db.execute({
+        sql: "SELECT COALESCE(MAX(position), -1) + 1 as next_pos FROM todos WHERE user_id = ?",
+        args: [userId],
+    });
+    const position = maxPosResult.rows[0]?.next_pos as number || 0;
+
+    await db.execute({
+        sql: `INSERT INTO todos (id, user_id, title, completed, category_id, position, created_at, updated_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [
+            todo.id,
+            userId,
+            todo.title,
+            todo.completed ? 1 : 0,
+            todo.categoryId,
+            position,
+            todo.createdAt,
+            todo.updatedAt,
+        ],
+    });
+
+    // Insert tags
+    for (const tagId of todo.tags) {
+        await db.execute({
+            sql: "INSERT OR IGNORE INTO todo_tags (todo_id, tag_id) VALUES (?, ?)",
+            args: [todo.id, tagId],
+        });
+    }
+
     return todo;
 }
 
-export function updateUserTodo(
+export async function updateUserTodo(
     userId: string,
     todoId: string,
     updates: Partial<Todo>
-): Todo | null {
-    const userData = getUserData(userId);
-    const todoIndex = userData.todos.findIndex((t) => t.id === todoId);
+): Promise<Todo | null> {
+    await ensureUser(userId);
 
-    if (todoIndex === -1) return null;
+    // Check if todo exists and belongs to user
+    const existing = await db.execute({
+        sql: "SELECT id FROM todos WHERE id = ? AND user_id = ?",
+        args: [todoId, userId],
+    });
 
-    userData.todos[todoIndex] = {
-        ...userData.todos[todoIndex],
-        ...updates,
-        updatedAt: new Date().toISOString(),
+    if (existing.rows.length === 0) return null;
+
+    const updatedAt = new Date().toISOString();
+
+    // Build update query dynamically
+    const setClauses: string[] = ["updated_at = ?"];
+    const args: (string | number | null)[] = [updatedAt];
+
+    if (updates.title !== undefined) {
+        setClauses.push("title = ?");
+        args.push(updates.title);
+    }
+    if (updates.completed !== undefined) {
+        setClauses.push("completed = ?");
+        args.push(updates.completed ? 1 : 0);
+    }
+    if (updates.categoryId !== undefined) {
+        setClauses.push("category_id = ?");
+        args.push(updates.categoryId);
+    }
+
+    args.push(todoId, userId);
+
+    await db.execute({
+        sql: `UPDATE todos SET ${setClauses.join(", ")} WHERE id = ? AND user_id = ?`,
+        args,
+    });
+
+    // Update tags if provided
+    if (updates.tags !== undefined) {
+        await db.execute({
+            sql: "DELETE FROM todo_tags WHERE todo_id = ?",
+            args: [todoId],
+        });
+        for (const tagId of updates.tags) {
+            await db.execute({
+                sql: "INSERT OR IGNORE INTO todo_tags (todo_id, tag_id) VALUES (?, ?)",
+                args: [todoId, tagId],
+            });
+        }
+    }
+
+    // Fetch and return updated todo
+    const todoResult = await db.execute({
+        sql: `SELECT id, title, completed, category_id, created_at, updated_at 
+              FROM todos WHERE id = ?`,
+        args: [todoId],
+    });
+
+    if (todoResult.rows.length === 0) return null;
+
+    const row = todoResult.rows[0];
+    const tagsResult = await db.execute({
+        sql: "SELECT tag_id FROM todo_tags WHERE todo_id = ?",
+        args: [todoId],
+    });
+
+    return {
+        id: row.id as string,
+        title: row.title as string,
+        completed: row.completed === 1,
+        categoryId: row.category_id as string | null,
+        tags: tagsResult.rows.map((t) => t.tag_id as string),
+        createdAt: row.created_at as string,
+        updatedAt: row.updated_at as string,
     };
-
-    userDataStore.set(userId, userData);
-    return userData.todos[todoIndex];
 }
 
-export function deleteUserTodo(userId: string, todoId: string): boolean {
-    const userData = getUserData(userId);
-    const initialLength = userData.todos.length;
-    userData.todos = userData.todos.filter((t) => t.id !== todoId);
-    userDataStore.set(userId, userData);
-    return userData.todos.length < initialLength;
+export async function deleteUserTodo(userId: string, todoId: string): Promise<boolean> {
+    await ensureUser(userId);
+
+    const result = await db.execute({
+        sql: "DELETE FROM todos WHERE id = ? AND user_id = ?",
+        args: [todoId, userId],
+    });
+
+    return result.rowsAffected > 0;
 }
 
-export function reorderUserTodos(
+export async function reorderUserTodos(
     userId: string,
     fromIndex: number,
     toIndex: number
-): Todo[] {
-    const userData = getUserData(userId);
-    const newTodos = [...userData.todos];
-    const [removed] = newTodos.splice(fromIndex, 1);
-    newTodos.splice(toIndex, 0, removed);
-    userData.todos = newTodos;
-    userDataStore.set(userId, userData);
-    return userData.todos;
+): Promise<Todo[]> {
+    await ensureUser(userId);
+
+    // Get all todos ordered by position
+    const todosResult = await db.execute({
+        sql: "SELECT id FROM todos WHERE user_id = ? ORDER BY position ASC",
+        args: [userId],
+    });
+
+    const todoIds = todosResult.rows.map((r) => r.id as string);
+
+    // Reorder in memory
+    const [removed] = todoIds.splice(fromIndex, 1);
+    todoIds.splice(toIndex, 0, removed);
+
+    // Update positions in database
+    for (let i = 0; i < todoIds.length; i++) {
+        await db.execute({
+            sql: "UPDATE todos SET position = ? WHERE id = ?",
+            args: [i, todoIds[i]],
+        });
+    }
+
+    // Return updated todos
+    return getUserTodos(userId);
 }
 
 // Category operations
-export function getUserCategories(userId: string): Category[] {
-    return getUserData(userId).categories;
+export async function getUserCategories(userId: string): Promise<Category[]> {
+    const data = await getUserData(userId);
+    return data.categories;
 }
 
-export function addUserCategory(userId: string, category: Category): Category {
-    const userData = getUserData(userId);
-    userData.categories = [...userData.categories, category];
-    userDataStore.set(userId, userData);
+export async function addUserCategory(userId: string, category: Category): Promise<Category> {
+    await ensureUser(userId);
+
+    await db.execute({
+        sql: "INSERT INTO categories (id, user_id, name, icon, color) VALUES (?, ?, ?, ?, ?)",
+        args: [category.id, userId, category.name, category.icon, category.color],
+    });
+
     return category;
 }
 
-export function deleteUserCategory(userId: string, categoryId: string): boolean {
-    const userData = getUserData(userId);
-    const initialLength = userData.categories.length;
-    userData.categories = userData.categories.filter((c) => c.id !== categoryId);
-    // Also remove category from todos
-    userData.todos = userData.todos.map((todo) =>
-        todo.categoryId === categoryId ? { ...todo, categoryId: null } : todo
-    );
-    userDataStore.set(userId, userData);
-    return userData.categories.length < initialLength;
+export async function deleteUserCategory(userId: string, categoryId: string): Promise<boolean> {
+    await ensureUser(userId);
+
+    // Delete category (todos will have category_id set to NULL via ON DELETE SET NULL)
+    const result = await db.execute({
+        sql: "DELETE FROM categories WHERE id = ? AND user_id = ?",
+        args: [categoryId, userId],
+    });
+
+    return result.rowsAffected > 0;
 }
 
 // Tag operations
-export function getUserTags(userId: string): Tag[] {
-    return getUserData(userId).tags;
+export async function getUserTags(userId: string): Promise<Tag[]> {
+    const data = await getUserData(userId);
+    return data.tags;
 }
 
-export function addUserTag(userId: string, tag: Tag): Tag {
-    const userData = getUserData(userId);
-    userData.tags = [...userData.tags, tag];
-    userDataStore.set(userId, userData);
+export async function addUserTag(userId: string, tag: Tag): Promise<Tag> {
+    await ensureUser(userId);
+
+    await db.execute({
+        sql: "INSERT INTO tags (id, user_id, name, color) VALUES (?, ?, ?, ?)",
+        args: [tag.id, userId, tag.name, tag.color],
+    });
+
     return tag;
 }
 
-export function deleteUserTag(userId: string, tagId: string): boolean {
-    const userData = getUserData(userId);
-    const initialLength = userData.tags.length;
-    userData.tags = userData.tags.filter((t) => t.id !== tagId);
-    // Also remove tag from todos
-    userData.todos = userData.todos.map((todo) => ({
-        ...todo,
-        tags: todo.tags.filter((t) => t !== tagId),
-    }));
-    userDataStore.set(userId, userData);
-    return userData.tags.length < initialLength;
+export async function deleteUserTag(userId: string, tagId: string): Promise<boolean> {
+    await ensureUser(userId);
+
+    // Delete tag (todo_tags entries will be deleted via ON DELETE CASCADE)
+    const result = await db.execute({
+        sql: "DELETE FROM tags WHERE id = ? AND user_id = ?",
+        args: [tagId, userId],
+    });
+
+    return result.rowsAffected > 0;
 }
 
 // Migration flag
-export function hasUserMigrated(userId: string): boolean {
-    return getUserData(userId).migrated;
+export async function hasUserMigrated(userId: string): Promise<boolean> {
+    await ensureUser(userId);
+
+    const result = await db.execute({
+        sql: "SELECT migrated FROM users WHERE id = ?",
+        args: [userId],
+    });
+
+    return result.rows[0]?.migrated === 1;
 }
 
-export function setUserMigrated(userId: string): void {
-    const userData = getUserData(userId);
-    userData.migrated = true;
-    userDataStore.set(userId, userData);
+export async function setUserMigrated(userId: string): Promise<void> {
+    await ensureUser(userId);
+
+    await db.execute({
+        sql: "UPDATE users SET migrated = 1, updated_at = datetime('now') WHERE id = ?",
+        args: [userId],
+    });
 }
 
 // Bulk import for migration
-export function importUserData(
+export async function importUserData(
     userId: string,
     data: { todos: Todo[]; categories: Category[]; tags: Tag[] }
-): UserData {
-    const userData = getUserData(userId);
-    userData.todos = data.todos;
-    userData.categories = data.categories;
-    userData.tags = data.tags;
-    userData.migrated = true;
-    userDataStore.set(userId, userData);
-    return userData;
+): Promise<UserData> {
+    await ensureUser(userId);
+
+    // Clear existing data (except defaults that may have been added)
+    await db.execute({ sql: "DELETE FROM todo_tags WHERE todo_id IN (SELECT id FROM todos WHERE user_id = ?)", args: [userId] });
+    await db.execute({ sql: "DELETE FROM todos WHERE user_id = ?", args: [userId] });
+    await db.execute({ sql: "DELETE FROM categories WHERE user_id = ?", args: [userId] });
+    await db.execute({ sql: "DELETE FROM tags WHERE user_id = ?", args: [userId] });
+
+    // Import categories
+    for (const cat of data.categories) {
+        await db.execute({
+            sql: "INSERT INTO categories (id, user_id, name, icon, color) VALUES (?, ?, ?, ?, ?)",
+            args: [cat.id, userId, cat.name, cat.icon, cat.color],
+        });
+    }
+
+    // Import tags
+    for (const tag of data.tags) {
+        await db.execute({
+            sql: "INSERT INTO tags (id, user_id, name, color) VALUES (?, ?, ?, ?)",
+            args: [tag.id, userId, tag.name, tag.color],
+        });
+    }
+
+    // Import todos with position
+    for (let i = 0; i < data.todos.length; i++) {
+        const todo = data.todos[i];
+        await db.execute({
+            sql: `INSERT INTO todos (id, user_id, title, completed, category_id, position, created_at, updated_at)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            args: [
+                todo.id,
+                userId,
+                todo.title,
+                todo.completed ? 1 : 0,
+                todo.categoryId,
+                i,
+                todo.createdAt,
+                todo.updatedAt,
+            ],
+        });
+
+        // Insert todo tags
+        for (const tagId of todo.tags) {
+            await db.execute({
+                sql: "INSERT OR IGNORE INTO todo_tags (todo_id, tag_id) VALUES (?, ?)",
+                args: [todo.id, tagId],
+            });
+        }
+    }
+
+    // Mark as migrated
+    await setUserMigrated(userId);
+
+    return getUserData(userId);
 }
+

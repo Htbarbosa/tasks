@@ -18,7 +18,7 @@ export async function DELETE(request: Request, { params }: RouteParams) {
     }
 
     const { id } = await params;
-    const deleted = deleteUserCategory(session.user.id, id);
+    const deleted = await deleteUserCategory(session.user.id, id);
 
     if (!deleted) {
         return NextResponse.json({ error: "Category not found" }, { status: 404 });

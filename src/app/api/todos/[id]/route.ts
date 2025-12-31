@@ -19,7 +19,7 @@ export async function GET(request: Request, { params }: RouteParams) {
     }
 
     const { id } = await params;
-    const todos = getUserTodos(session.user.id);
+    const todos = await getUserTodos(session.user.id);
     const todo = todos.find((t) => t.id === id);
 
     if (!todo) {
@@ -54,7 +54,7 @@ export async function PUT(request: Request, { params }: RouteParams) {
             );
         }
 
-        const updatedTodo = updateUserTodo(
+        const updatedTodo = await updateUserTodo(
             session.user.id,
             id,
             validationResult.data
@@ -84,7 +84,7 @@ export async function DELETE(request: Request, { params }: RouteParams) {
     }
 
     const { id } = await params;
-    const deleted = deleteUserTodo(session.user.id, id);
+    const deleted = await deleteUserTodo(session.user.id, id);
 
     if (!deleted) {
         return NextResponse.json({ error: "Todo not found" }, { status: 404 });

@@ -19,7 +19,7 @@ export async function GET() {
     }
 
     const userId = session.user.id;
-    const userData = getUserData(userId);
+    const userData = await getUserData(userId);
 
     return NextResponse.json({
         todos: userData.todos,
@@ -43,7 +43,7 @@ export async function POST(request: Request) {
     const userId = session.user.id;
 
     // Check if already migrated
-    if (hasUserMigrated(userId)) {
+    if (await hasUserMigrated(userId)) {
         return NextResponse.json(
             { error: "Data already migrated", migrated: true },
             { status: 400 }
@@ -64,7 +64,7 @@ export async function POST(request: Request) {
         }
 
         // Import the validated data
-        const userData = importUserData(userId, validationResult.data);
+        const userData = await importUserData(userId, validationResult.data);
 
         // Return result with any validation warnings
         return NextResponse.json({

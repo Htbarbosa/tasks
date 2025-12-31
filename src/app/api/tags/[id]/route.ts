@@ -18,7 +18,7 @@ export async function DELETE(request: Request, { params }: RouteParams) {
     }
 
     const { id } = await params;
-    const deleted = deleteUserTag(session.user.id, id);
+    const deleted = await deleteUserTag(session.user.id, id);
 
     if (!deleted) {
         return NextResponse.json({ error: "Tag not found" }, { status: 404 });

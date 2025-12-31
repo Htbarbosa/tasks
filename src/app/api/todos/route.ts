@@ -20,7 +20,7 @@ export async function GET() {
         return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const todos = getUserTodos(session.user.id);
+    const todos = await getUserTodos(session.user.id);
     return NextResponse.json(todos);
 }
 
@@ -47,7 +47,7 @@ export async function POST(request: Request) {
                 );
             }
 
-            const todos = reorderUserTodos(session.user.id, fromIndex, toIndex);
+            const todos = await reorderUserTodos(session.user.id, fromIndex, toIndex);
             return NextResponse.json(todos);
         }
 
@@ -74,7 +74,7 @@ export async function POST(request: Request) {
             updatedAt: now,
         };
 
-        const todo = addUserTodo(session.user.id, newTodo);
+        const todo = await addUserTodo(session.user.id, newTodo);
         return NextResponse.json(todo, { status: 201 });
     } catch {
         return NextResponse.json(

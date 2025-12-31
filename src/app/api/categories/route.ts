@@ -16,7 +16,7 @@ export async function GET() {
         return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const categories = getUserCategories(session.user.id);
+    const categories = await getUserCategories(session.user.id);
     return NextResponse.json(categories);
 }
 
@@ -52,7 +52,7 @@ export async function POST(request: Request) {
             color,
         };
 
-        const category = addUserCategory(session.user.id, newCategory);
+        const category = await addUserCategory(session.user.id, newCategory);
         return NextResponse.json(category, { status: 201 });
     } catch {
         return NextResponse.json(
