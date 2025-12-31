@@ -5,7 +5,7 @@ import { getToken } from "next-auth/jwt";
 // Routes that don't require authentication
 const publicRoutes = ["/login", "/api/auth"];
 
-export async function middleware(req: NextRequest) {
+export async function proxy(req: NextRequest) {
     const { nextUrl } = req;
     const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
     const isLoggedIn = !!token;
