@@ -10,17 +10,23 @@ interface TodoInputProps {
     categories: Category[];
     tags: Tag[];
     onAdd: (title: string, categoryId: string | null, tagIds: string[]) => void;
+    defaultCategoryId?: string | null;
 }
 
-export function TodoInput({ categories, tags, onAdd }: TodoInputProps) {
+export function TodoInput({ categories, tags, onAdd, defaultCategoryId }: TodoInputProps) {
     const [title, setTitle] = useState('');
-    const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+    const [selectedCategory, setSelectedCategory] = useState<string | null>(defaultCategoryId ?? null);
     const [selectedTags, setSelectedTags] = useState<string[]>([]);
     const [showCategoryPicker, setShowCategoryPicker] = useState(false);
     const [showTagPicker, setShowTagPicker] = useState(false);
 
     const categoryRef = useRef<HTMLDivElement>(null);
     const tagRef = useRef<HTMLDivElement>(null);
+
+    // Sync selectedCategory when defaultCategoryId changes
+    useEffect(() => {
+        setSelectedCategory(defaultCategoryId ?? null);
+    }, [defaultCategoryId]);
 
     // Close dropdowns when clicking outside
     useEffect(() => {

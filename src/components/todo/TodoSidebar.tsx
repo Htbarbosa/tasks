@@ -4,7 +4,9 @@ import { useState } from 'react';
 import { Category, Tag } from '@/types';
 import { CategoryBadge, TagBadge, Button, Input } from '@/components/ui';
 import { cn } from '@/lib/utils';
-import { Plus, Trash2, ChevronDown, ChevronRight } from 'lucide-react';
+import { Plus, Trash2, ChevronDown, ChevronRight, X, LayoutGrid } from 'lucide-react';
+import * as Icons from 'lucide-react';
+import { LucideIcon } from 'lucide-react';
 
 interface TodoSidebarProps {
     categories: Category[];
@@ -20,6 +22,8 @@ interface TodoSidebarProps {
     todoCountByCategory: Record<string, number>;
     todoCountByTag: Record<string, number>;
     totalTodos: number;
+    isOpen?: boolean;
+    onClose?: () => void;
 }
 
 const COLORS = [
@@ -41,6 +45,8 @@ export function TodoSidebar({
     todoCountByCategory,
     todoCountByTag,
     totalTodos,
+    isOpen = false,
+    onClose,
 }: TodoSidebarProps) {
     const [showCategories, setShowCategories] = useState(true);
     const [showTags, setShowTags] = useState(true);
@@ -68,23 +74,53 @@ export function TodoSidebar({
         }
     };
 
+    // Helper to get icon component for collapsed view
+    const getIconComponent = (iconName: string): LucideIcon => {
+        return (Icons[iconName as keyof typeof Icons] as LucideIcon) || Icons.Folder;
+    };
+
     return (
-        <aside className="w-64 shrink-0 border-r border-gray-200 bg-gray-50/50 p-4">
+        <aside
+            className={cn(
+                'shrink-0 border-r border-gray-200 p-4',
+                'transition-transform duration-300 ease-in-out',
+                // Mobile: solid background, Desktop: semi-transparent
+                'bg-gray-50 md:bg-gray-50/50',
+                // Desktop: always visible, fixed width
+                'md:relative md:translate-x-0 md:w-64',
+                // Mobile: fixed position, slide in/out
+                'fixed inset-y-0 left-0 z-50 w-[70vw] max-w-70',
+                isOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
+            )}
+        >
+            {/* Mobile close button */}
+            <button
+                onClick={onClose}
+                className="absolute right-3 top-3 rounded-lg p-1.5 text-gray-400 hover:bg-gray-200 hover:text-gray-600 md:hidden"
+                aria-label="Close menu"
+            >
+                <X className="h-5 w-5" />
+            </button>
+
             {/* All tasks */}
             <button
                 onClick={() => {
                     onSelectCategory(null);
                     onSelectTag(null);
+                    onClose?.();
                 }}
                 className={cn(
-                    'mb-4 flex w-full items-center justify-between rounded-lg px-3 py-2',
+                    'mb-4 flex w-full items-center justify-between rounded-lg px-3 py-2 mt-8 md:mt-0',
                     'text-sm font-medium text-gray-700',
                     'transition-colors duration-150',
                     'hover:bg-gray-100',
                     !selectedCategory && !selectedTag && 'bg-white shadow-sm'
                 )}
             >
-                <span>All tasks</span>
+                <span className="flex items-center gap-2">
+                    <LayoutGrid className="h-4 w-4" />
+                    <span>All tasks</span>
+                </span>
                 <span className="rounded-full bg-gray-200 px-2 py-0.5 text-xs text-gray-600">
                     {totalTodos}
                 </span>
@@ -106,40 +142,44 @@ export function TodoSidebar({
 
                 {showCategories && (
                     <div className="space-y-1">
-                        {categories.map((category) => (
-                            <div
-                                key={category.id}
-                                className={cn(
-                                    'group flex items-center justify-between rounded-lg px-3 py-1.5',
-                                    'transition-colors duration-150',
-                                    'hover:bg-gray-100',
-                                    selectedCategory === category.id && 'bg-white shadow-sm'
-                                )}
-                            >
-                                <button
-                                    onClick={() => {
-                                        onSelectCategory(category.id);
-                                        onSelectTag(null);
-                                    }}
-                                    className="flex flex-1 items-center gap-2"
-                                >
-                                    <CategoryBadge category={category} size="sm" />
-                                </button>
-                                <div className="flex items-center gap-1">
-                                    <span className="text-xs text-gray-400">
-                                        {todoCountByCategory[category.id] || 0}
-                                    </span>
-                                    {onDeleteCategory && (
-                                        <button
-                                            onClick={() => onDeleteCategory(category.id)}
-                                            className="rounded p-0.5 text-gray-300 opacity-0 transition-all hover:bg-red-50 hover:text-red-500 group-hover:opacity-100"
-                                        >
-                                            <Trash2 className="h-3 w-3" />
-                                        </button>
+                        {categories.map((category) => {
+                            const IconComponent = getIconComponent(category.icon);
+                            return (
+                                <div
+                                    key={category.id}
+                                    className={cn(
+                                        'group flex items-center justify-between rounded-lg px-3 py-1.5',
+                                        'transition-colors duration-150',
+                                        'hover:bg-gray-100',
+                                        selectedCategory === category.id && 'bg-white shadow-sm'
                                     )}
+                                >
+                                    <button
+                                        onClick={() => {
+                                            onSelectCategory(category.id);
+                                            onSelectTag(null);
+                                            onClose?.();
+                                        }}
+                                        className="flex flex-1 items-center gap-2"
+                                    >
+                                        <CategoryBadge category={category} size="sm" />
+                                    </button>
+                                    <div className="flex items-center gap-1">
+                                        <span className="text-xs text-gray-400">
+                                            {todoCountByCategory[category.id] || 0}
+                                        </span>
+                                        {onDeleteCategory && (
+                                            <button
+                                                onClick={() => onDeleteCategory(category.id)}
+                                                className="rounded p-0.5 text-gray-300 opacity-0 transition-all hover:bg-red-50 hover:text-red-500 group-hover:opacity-100"
+                                            >
+                                                <Trash2 className="h-3 w-3" />
+                                            </button>
+                                        )}
+                                    </div>
                                 </div>
-                            </div>
-                        ))}
+                            );
+                        })}
 
                         {/* Add category form */}
                         {isAddingCategory ? (
@@ -225,6 +265,7 @@ export function TodoSidebar({
                                     onClick={() => {
                                         onSelectTag(tag.id);
                                         onSelectCategory(null);
+                                        onClose?.();
                                     }}
                                     className="flex flex-1 items-center gap-2"
                                 >

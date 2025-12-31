@@ -3,7 +3,7 @@
 import { useState, useMemo } from 'react';
 import { useTodos } from '@/hooks';
 import { TodoInput, TodoList, TodoSidebar } from '@/components/todo';
-import { CheckCircle2, Loader2 } from 'lucide-react';
+import { CheckCircle2, Loader2, Menu } from 'lucide-react';
 
 export default function Home() {
   const {
@@ -24,6 +24,7 @@ export default function Home() {
 
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   // Filter todos based on selection
   const filteredTodos = useMemo(() => {
@@ -84,6 +85,23 @@ export default function Home() {
 
   return (
     <div className="flex h-screen bg-white">
+      {/* Mobile menu button */}
+      <button
+        onClick={() => setIsSidebarOpen(true)}
+        className="fixed left-4 top-4 z-40 rounded-lg bg-white p-2 shadow-md md:hidden"
+        aria-label="Open menu"
+      >
+        <Menu className="h-6 w-6 text-gray-600" />
+      </button>
+
+      {/* Backdrop overlay for mobile */}
+      {isSidebarOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/50 md:hidden"
+          onClick={() => setIsSidebarOpen(false)}
+        />
+      )}
+
       {/* Sidebar */}
       <TodoSidebar
         categories={categories}
@@ -99,11 +117,13 @@ export default function Home() {
         todoCountByCategory={todoCountByCategory}
         todoCountByTag={todoCountByTag}
         totalTodos={todos.length}
+        isOpen={isSidebarOpen}
+        onClose={() => setIsSidebarOpen(false)}
       />
 
       {/* Main content */}
       <main className="flex-1 overflow-auto">
-        <div className="mx-auto max-w-3xl px-8 py-12">
+        <div className="mx-auto max-w-3xl px-8 py-12 pt-16 md:pt-12">
           {/* Header */}
           <header className="mb-8">
             <div className="flex items-center gap-3 mb-2">
@@ -124,8 +144,9 @@ export default function Home() {
             <TodoInput
               categories={categories}
               tags={tags}
+              defaultCategoryId={selectedCategory}
               onAdd={(title, categoryId, tagIds) => {
-                addTodo(title, categoryId || selectedCategory, tagIds);
+                addTodo(title, categoryId ?? selectedCategory, tagIds);
               }}
             />
           </div>
